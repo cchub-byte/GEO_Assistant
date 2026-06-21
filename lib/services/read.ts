@@ -76,15 +76,7 @@ export async function getDashboard(projectId?: string | null) {
         },
         orderBy: [{ runAt: "desc" }, { id: "desc" }]
       },
-      contentAssets: { include: { snapshots: { include: { structure: true, evidenceModules: true }, orderBy: { snapshotAt: "desc" }, take: 1 } } },
-      findings: { include: { cluster: true, tasks: true }, orderBy: [{ severity: "asc" }, { createdAt: "desc" }], take: 10 },
-      tasks: { include: { finding: true }, orderBy: { createdAt: "desc" }, take: 10 },
-      experiments: { include: { strategyCards: true, cluster: true }, orderBy: { createdAt: "desc" }, take: 8 },
-      strategyCards: { orderBy: { createdAt: "desc" }, take: 8 },
-      authoritySources: { orderBy: { citationCount: "desc" }, take: 12 },
-      authorityOpportunities: { orderBy: { score: "desc" }, take: 10 },
-      alerts: { orderBy: { createdAt: "desc" }, take: 8 },
-      reports: { orderBy: { createdAt: "desc" }, take: 3 }
+      contentAssets: { include: { snapshots: { include: { structure: true, evidenceModules: true }, orderBy: { snapshotAt: "desc" }, take: 1 } } }
     }
   });
   if (!project) return null;
@@ -111,8 +103,7 @@ export async function getRunDetail(runId: string) {
       citations: { include: { source: true } },
       mentions: true,
       competitorOccurrences: true,
-      metrics: true,
-      findingEvidence: { include: { finding: true } }
+      metrics: true
     }
   });
 }

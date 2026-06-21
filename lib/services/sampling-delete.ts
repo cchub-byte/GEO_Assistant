@@ -21,10 +21,6 @@ export async function deleteSamplingBatchWithRuns(batchId: string) {
   });
   const runIds = runs.map((run) => run.id);
   if (runIds.length > 0) {
-    await prisma.findingEvidence.updateMany({
-      where: { runId: { in: runIds } },
-      data: { runId: null }
-    });
     await prisma.answerRun.deleteMany({
       where: { id: { in: runIds } }
     });

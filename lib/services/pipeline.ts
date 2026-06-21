@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { runSamplingPlan } from "@/lib/services/sampling";
-import { analyzeContentAsset, computeProjectMetrics, createTasksFromFindings, generateAlerts, generateFindings, generateReport, refreshAuthority } from "@/lib/services/analysis";
+import { analyzeContentAsset, computeProjectMetrics } from "@/lib/services/analysis";
 import { primaryBrandName } from "@/lib/utils";
 
 export async function runFullDemoPipeline(projectId: string) {
@@ -19,43 +19,6 @@ export async function runFullDemoPipeline(projectId: string) {
     await runSamplingPlan(plan.id, "mock");
   }
   await computeProjectMetrics(projectId);
-  await generateFindings(projectId);
-  await createTasksFromFindings(projectId);
-  await refreshAuthority(projectId);
-  await createDemoExperiments(projectId);
-  await generateAlerts(projectId);
-  await generateReport(projectId, "weekly");
-}
-
-async function createDemoExperiments(projectId: string) {
-  const cluster = await prisma.queryCluster.findFirst({ where: { projectId, intentType: "alternative" } });
-  const experiment = await prisma.experiment.create({
-    data: {
-      projectId,
-      clusterId: cluster?.id,
-      name: "替代方案页面补充对比与限制条件",
-      hypothesis: "增加竞品对比、价格/规格和限制条件模块，可提升替代方案类 query 的吸收得分。",
-      targetMetric: "absorptionScore",
-      guardrailMetrics: "errorDescriptionRate, negativeImpactRate",
-      status: "completed",
-      baselineWindow: "过去 7 天",
-      posttestWindow: "上线后 7 天",
-      resultSummary: "mock 演示数据中吸收得分提升 18%，无明显错误描述增加。"
-    }
-  });
-  await prisma.strategyCard.create({
-    data: {
-      projectId,
-      experimentId: experiment.id,
-      strategyName: "替代方案类 Query 的对比证据模块",
-      applicableIntents: "alternative, comparison, recommendation",
-      assetTypes: "product_page, comparison_page, help_doc",
-      changePattern: "增加对比表、适用/不适用场景、迁移成本、集成方式和价格限制说明。",
-      observedUplift: 0.18,
-      riskNotes: "竞品事实需要持续维护，避免过期描述。",
-      doNotUseWhen: "页面没有可靠竞品事实来源或合规不允许直接对比时。"
-    }
-  });
 }
 
 function demoContentForAsset(title: string, brandName: string, competitors: string[]) {

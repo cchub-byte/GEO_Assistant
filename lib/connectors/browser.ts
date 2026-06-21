@@ -28,6 +28,7 @@ type SubmitPromptOptions = {
 
 const COLLECTION_WAIT_MS = 120000;
 
+// 浏览器连接器依赖真实平台 UI，核心策略是先确认可交互状态，再用平台特化规则提取答案与引用。
 export class BrowserConnector implements EngineConnector {
   constructor(public engineType: string) {}
 
@@ -44,6 +45,7 @@ export class BrowserConnector implements EngineConnector {
       const url = buildStartUrl(input);
       await gotoStartUrl(page, url, input.timeoutMs || 45000);
       await page.bringToFront().catch(() => undefined);
+      // 登录、区域限制和风控页需要尽早识别；这些场景不应继续输入 Query。
       const preflightFailure = await detectPlatformBlockingState(page, input.engineType);
       if (preflightFailure) {
         const text = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
@@ -63,6 +65,7 @@ export class BrowserConnector implements EngineConnector {
       let engineSources: CollectedSource[] = [];
       let copiedAnswerText = "";
       let searchKeywords: string[] = [];
+      // Google AIO 没有统一复制按钮；其他对话式平台优先通过复制按钮获取干净答案文本。
       if (input.engineType === "google_aio") {
         await waitForAnswerReady(page, input.engineType, input.waitAfterSubmitMs ?? 120000);
         bodyText = await page.locator("body").innerText({ timeout: 10000 }).catch(() => "");
@@ -85,6 +88,7 @@ export class BrowserConnector implements EngineConnector {
       if (input.engineType !== "google_aio" && !copiedAnswerText) {
         return fail("answer_copy_button_not_found_or_clipboard_empty", bodyText.slice(0, 4000), true, "");
       }
+      // 千问和豆包的引用入口较多，若平台特化提取失败则宁可返回空引用，避免抓取无关页面链接。
       const sourceList = engineSources.length
         ? engineSources
         : input.engineType === "qianwen" || input.engineType === "doubao"
@@ -123,6 +127,7 @@ export class BrowserConnector implements EngineConnector {
 
     function fail(reason: string, raw = "", shouldClose = true, answerText = raw): CollectionOutput {
       if (!shouldClose) {
+        // 登录或风控类失败保留窗口，便于用户在同一持久化会话中手动处理后重试。
         closeInFinally = false;
         if (!input.keepOpen) {
           setTimeout(() => context?.close().catch(() => undefined), 300000);
@@ -148,6 +153,7 @@ async function createCollectionPage(context: BrowserContext, engineType: string)
 }
 
 async function withPageCreationLock<T>(task: () => Promise<T>): Promise<T> {
+  // Chromium Target.createTarget 对同一持久化上下文并发调用不稳定，页面创建需要串行。
   const previous = pageCreationLock;
   let release: () => void = () => undefined;
   pageCreationLock = new Promise<void>((resolve) => {
@@ -225,6 +231,7 @@ async function collectDoubaoAnswerAndSourcesByRule(page: Page, input: Collection
   let bodyText = await page.locator("body").innerText({ timeout: 10000 }).catch(() => "");
 
   while (Date.now() - startedAt < finalDeadlineMs) {
+    // 豆包偶发生成完成但操作区未出现；先轮询复制按钮，超时后刷新并重新提交一次。
     await scrollToLatestAnswerBottom(page);
     bodyText = await page.locator("body").innerText({ timeout: 10000 }).catch(() => bodyText);
 
@@ -501,6 +508,7 @@ async function collectAnswerTextFromCopyButton(page: Page, engineType: string, q
 let clipboardLock: Promise<void> = Promise.resolve();
 
 async function withClipboardLock<T>(task: () => Promise<T>): Promise<T> {
+  // 系统剪贴板是全局资源；并发复制会造成答案串扰，必须加进程内锁。
   const previous = clipboardLock;
   let release: () => void = () => undefined;
   clipboardLock = new Promise<void>((resolve) => {
@@ -518,6 +526,7 @@ async function collectAnswerTextFromCopyButtonUnlocked(page: Page, engineType: s
   await grantClipboardPermissions(page);
   await page.bringToFront().catch(() => undefined);
 
+  // sentinel 用于区分“复制按钮没有生效”和“剪贴板中原本已有文本”。
   const sentinel = `__geo_answer_clipboard_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
   const sentinelWritten = await writeClipboardText(page, sentinel);
   const beforeText = sentinelWritten ? sentinel : await readClipboardText(page);
@@ -724,6 +733,7 @@ async function findAnswerCopyButtonCandidates(page: Page, engineType: string, qu
           .replace(/[，,。.!！?？:：;；-]/g, "")
           .toLowerCase();
       const compactQuery = compact(query);
+      // 候选按钮会排除靠近输入框或仅复制用户 Query 的控件，优先选择最新回答区域的复制操作。
       const isQueryContext = (text: string) => {
         if (!compactQuery) return false;
         const compactText = compact(text);
@@ -924,6 +934,7 @@ async function waitForPromptInput(page: Page, engineType: string, timeoutMs: num
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
+    // 不同平台输入框结构差异很大，按可见面积、位置、role 和提示语综合评分选择最可能的输入框。
     const candidates: Array<{ locator: Locator; score: number }> = [];
     for (const selector of selectors) {
       const rawCount = await page.locator(selector).count().catch(() => 0);
@@ -987,6 +998,7 @@ async function collectEngineSpecificSources(page: Page, engineType: string): Pro
 
 async function collectQianwenSources(page: Page): Promise<CollectedSource[]> {
   const before = new Set((await collectVisibleHttpUrls(page)).filter((item) => Boolean(item)));
+  // 千问优先读取“搜索内容/深度思考”卡片，再回退到参考来源面板和可见区域抽取。
   const openedBySearchContent = await clickQianwenSearchContentTrigger(page, 12000);
   if (openedBySearchContent) {
     await waitForQianwenDeepThinkSourceCards(page, COLLECTION_WAIT_MS);
@@ -1036,6 +1048,7 @@ async function collectQianwenSources(page: Page): Promise<CollectedSource[]> {
 
 async function collectDoubaoSources(page: Page): Promise<CollectedSource[]> {
   const before = new Set((await collectVisibleHttpUrls(page)).filter((item) => Boolean(item)));
+  // 豆包引用可能出现在消息操作、结构化引用、关键词面板或正文文本中，按可信度从高到低尝试。
   const messageActionSources = await collectDoubaoMessageActionReferences(page);
   if (messageActionSources.length > 0) return messageActionSources;
 
@@ -3274,6 +3287,7 @@ async function submitPrompt(page: Page, inputLocator: Locator, engineType: strin
   const maxAttempts = options.maxAttempts ?? 3;
   const submitWaitMs = options.submitWaitMs ?? 9000;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // 提交成功没有统一 DOM 信号，因此同时监听输入框变化和疑似对话提交网络请求。
     await preparePromptInput(page, inputLocator, queryText, engineType);
     const baseline = await collectSubmissionState(page, inputLocator);
     await page.keyboard.press("Enter").catch(() => undefined);
@@ -3649,6 +3663,7 @@ async function waitForLikelySubmitNetworkWithQuery(page: Page, engineType: strin
     host = "";
   }
   const normalizedQuery = normalizeForSearch(queryText);
+  // 网络层确认用于覆盖 UI 未及时变化的情况；若提供 queryText，则请求体必须包含该 Query。
   return page.waitForRequest(
     (request) => {
       if (!isLikelySubmitRequest(request, host, engineType)) return false;

@@ -79,6 +79,7 @@ async function loadSamplingPlanForRun(planId: string) {
 
 export async function startSamplingPlan(planId: string, mode: SamplingMode = "mock", maxRuns = 0, options: SamplingOptions = {}) {
   const prepared = await prepareSamplingJob(planId, mode, maxRuns, options);
+  // API 入口使用 start* 变体时只负责持久化任务；浏览器采集可能持续数分钟，必须在后台继续推进。
   void executePreparedSamplingJob(prepared).catch((error) => {
     console.error("sampling_run_failed", error);
   });
@@ -115,6 +116,7 @@ async function prepareSamplingJob(planId: string, mode: SamplingMode, maxRuns: n
   const plan = await loadSamplingPlanForRun(planId);
   if (!plan) throw new Error(`Sampling plan not found: ${planId}`);
 
+  // 查询范围、平台范围与重复次数在执行前一次性展开，后续队列状态只依赖已创建的 AnswerRun。
   const projectId = plan.projectId;
   const allQueries = plan.project.queryClusters.flatMap((cluster) => cluster.queries.filter((query) => query.status === "active"));
   const requestedQueryIds = (options.queryIds || []).filter(Boolean);
@@ -171,6 +173,7 @@ async function prepareSamplingJob(planId: string, mode: SamplingMode, maxRuns: n
     options.batchName,
     clusterNameById
   );
+  // 先创建所有 AnswerRun，再逐条执行；这样取消、继续、状态页和完整工作流都能看到稳定的计划清单。
   const answerRuns = await prisma.$transaction(
     cappedRuns.map((runSpec) =>
       prisma.answerRun.create({
@@ -294,6 +297,7 @@ async function resetAnswerRunForRerun(
   plannedSequence = 1,
   options: RetryAnswerRunsOptions = {}
 ) {
+  // 重跑会使引用、提及、指标和证据命中全部失效；先清理派生数据，避免新旧分析结果混用。
   await prisma.answerEvidenceHit.deleteMany({ where: { runId } });
   await prisma.citation.deleteMany({ where: { runId } });
   await prisma.source.deleteMany({ where: { runId } });
@@ -339,6 +343,7 @@ async function executePreparedSamplingJob(prepared: PreparedSamplingJob) {
   let cancelled = false;
 
   try {
+    // 浏览器会话、页面焦点和剪贴板都属于共享资源；采样按计划串行执行以降低平台 UI 干扰。
     for (const runSpec of prepared.runs) {
       if (await isSamplingJobCancelled(prepared.jobId)) {
         cancelled = true;
@@ -353,6 +358,7 @@ async function executePreparedSamplingJob(prepared: PreparedSamplingJob) {
       completed += 1;
     }
   } catch (error) {
+    // 连接器抛错和用户取消可能同时发生；这里重新读取任务状态，确保最终状态以用户取消为准。
     if (await isSamplingJobCancelled(prepared.jobId)) {
       await cancelQueuedAndRunningRuns(prepared.jobId);
       return prisma.samplingJob.update({
@@ -462,6 +468,7 @@ async function executeRun(prepared: PreparedSamplingJob, runSpec: PlannedRun) {
           samplingBatchId: runSpec.samplingBatchId || null
         }),
         sources: {
+          // 采集阶段只保存平台返回的引用线索；正文抓取和结构化分析由后续工作流完成。
           create: output.sources.map((source) => {
             const url = normalizeStoredReferenceUrl(source.url);
             return {
@@ -514,6 +521,7 @@ async function collectWithAnswerRunTimeout(collection: Promise<CollectionOutput>
     ]);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("answer_run_timeout:")) {
+      // 超时后关闭持久化上下文，避免平台页面仍在后台生成并污染下一次采集。
       await closePersistentBrowserContext(engineType);
     }
     throw error;
@@ -530,6 +538,7 @@ async function createSamplingBatchesForRuns(
   batchName: string | undefined,
   clusterNameById: Map<string, string>
 ) {
+  // 一次提交对应一个批次；多 Query 集场景下共享批次 ID，名称中保留涉及的 Query 集摘要。
   const batchDate = formatSamplingBatchDate(date);
   const clusterIds = uniqueInOrder(runs.map((run) => run.query.clusterId));
   const batchIdsByClusterId = new Map<string, string>();
@@ -556,6 +565,7 @@ async function createSamplingBatch(
   batchName: string | null
 ) {
   for (let attempt = 0; attempt < 5; attempt++) {
+    // sequence 由“读取最新值后插入”生成；并发提交时依赖唯一约束失败重试。
     const latest = await prisma.samplingBatch.findFirst({
       where: { projectId, batchDate },
       orderBy: { sequence: "desc" },
@@ -661,6 +671,7 @@ function resolveScopedQueries<T extends { id: string }>(queryScope: string, allQ
       return allQueries.filter((query) => selected.has(query.id));
     }
   } catch {
+    // 历史数据可能存有非 JSON scope；解析失败时回退到全部活跃 Query，保证采样仍可执行。
     return allQueries;
   }
   return allQueries;

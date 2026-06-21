@@ -166,12 +166,6 @@ async function main() {
       { projectId: project.id, type: "webhook", name: "通用 Webhook", endpointUrl: process.env.DEFAULT_WEBHOOK_URL || "", enabled: Boolean(process.env.DEFAULT_WEBHOOK_URL) }
     ]
   });
-  await prisma.alertRule.createMany({
-    data: [
-      { projectId: project.id, name: "VAIR 低于 50%", ruleType: "threshold", threshold: 0.5, severity: "P1" },
-      { projectId: project.id, name: "错误描述率超过 10%", ruleType: "threshold", threshold: 0.1, severity: "P0" }
-    ]
-  });
   await prisma.auditLog.create({
     data: {
       projectId: project.id,
@@ -189,16 +183,6 @@ async function clear() {
   await prisma.webhookDelivery.deleteMany();
   await prisma.integrationConfig.deleteMany();
   await prisma.report.deleteMany();
-  await prisma.alert.deleteMany();
-  await prisma.alertRule.deleteMany();
-  await prisma.authorityOpportunity.deleteMany();
-  await prisma.authoritySource.deleteMany();
-  await prisma.strategyCard.deleteMany();
-  await prisma.experiment.deleteMany();
-  await prisma.taskTimeline.deleteMany();
-  await prisma.task.deleteMany();
-  await prisma.findingEvidence.deleteMany();
-  await prisma.finding.deleteMany();
   await prisma.projectMetric.deleteMany();
   await prisma.clusterMetric.deleteMany();
   await prisma.queryMetric.deleteMany();

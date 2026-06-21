@@ -60,6 +60,7 @@ export async function startSamplingFullWorkflow(
   const batchIds = await batchIdsForJob(job.id);
   const projectId = await projectIdForJob(job.id);
   if (projectId) {
+    // 完整工作流跨越采样、回答分析、引用抓取和报告生成；状态独立于 SamplingJob 记录。
     await createWorkflowStatus({
       projectId,
       jobId: job.id,
@@ -69,6 +70,7 @@ export async function startSamplingFullWorkflow(
       message: "采样已提交，等待本批次采样完成。"
     });
   }
+  // 采样任务已异步启动，完整工作流通过轮询 SamplingJob 状态衔接后续分析步骤。
   void runSamplingFullWorkflow(job.id).catch((error) => {
     console.error("sampling_full_workflow_failed", error);
   });
@@ -87,6 +89,7 @@ export async function startContinueSamplingFullWorkflow(jobId: string, mode: Sam
 
   const retryableRunIds = await retryableAnswerRunIdsForBatches(sourceWorkflow.batchIds);
   if (retryableRunIds.length > 0) {
+    // 继续执行优先补跑失败或取消的采样，沿用原批次 ID，便于后续分析覆盖同一批次口径。
     const retryJob = await startRetryAnswerRuns(retryableRunIds, mode, {
       sourceJobId: sourceWorkflow.jobId,
       workflowResume: true
@@ -141,6 +144,7 @@ type RunSamplingFullWorkflowOptions = {
 async function runSamplingFullWorkflow(jobId: string, options: RunSamplingFullWorkflowOptions = {}) {
   const workflowErrors: string[] = [];
   try {
+    // 非关键分析步骤失败时记录 warning 并继续执行，避免单条引用或单个报告阻断整批结果产出。
     await updateWorkflowStatus(jobId, {
       status: "running",
       currentStep: "sampling",
@@ -179,6 +183,7 @@ async function runSamplingFullWorkflow(jobId: string, options: RunSamplingFullWo
       workflowErrors.push(`采样未成功：${unsuccessfulRuns.length} 条采样处于失败或取消状态。`);
     }
     const analyzableRuns = runs.filter((run) => run.status === "succeeded" && run.answerText.trim());
+    // 仅对成功且有正文的采样做回答分析；失败记录保留在 workflowErrors，供用户决定是否继续重试。
     await updateWorkflowStatus(jobId, {
       status: "running",
       currentStep: "answer-analysis",
@@ -200,6 +205,7 @@ async function runSamplingFullWorkflow(jobId: string, options: RunSamplingFullWo
 
     const runsAfterAnswerAnalysis = await loadWorkflowRuns(batchIds);
     const runsWithSources = runsAfterAnswerAnalysis.filter((item) => item.sources.length > 0);
+    // 引用正文抓取依赖采集阶段保存的 source 线索；无引用的回答不进入抓取队列。
     await updateWorkflowStatus(jobId, {
       status: "running",
       currentStep: "reference-fetch",
@@ -288,6 +294,7 @@ async function runSamplingFullWorkflow(jobId: string, options: RunSamplingFullWo
     }
 
     if (workflowErrors.length > 0) {
+      // 将非致命异常固化为报告，确保批次复盘时可以追溯失败的具体阶段和对象。
       await createWorkflowReport({
         projectId: project.id,
         type: "batch_full_workflow_status",
@@ -320,6 +327,7 @@ async function runSamplingFullWorkflow(jobId: string, options: RunSamplingFullWo
 async function waitForSamplingJob(jobId: string) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < samplingWorkflowTimeoutMs) {
+    // SamplingJob 由后台采样执行器更新；这里轮询数据库而不是持有进程内 Promise。
     const job = await samplingJobStatus(jobId);
     if (!job) return null;
     if (!["queued", "running"].includes(job.status)) return job;
@@ -478,6 +486,7 @@ async function updateWorkflowStatus(
 }
 
 async function ensureWorkflowStatusTable() {
+  // SamplingFullWorkflowStatus 是轻量编排状态表；使用惰性建表兼容已有本地 SQLite 数据库。
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "SamplingFullWorkflowStatus" (
       "id" TEXT NOT NULL PRIMARY KEY,

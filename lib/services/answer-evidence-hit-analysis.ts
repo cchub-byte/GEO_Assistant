@@ -46,6 +46,7 @@ type LlmMatch = {
 };
 
 export function answerEvidenceHitKey(runId: string, analysisLabel: string, analysisText: string) {
+  // analysisText 可能较长且会被重复展示；使用短 hash 生成稳定键，兼顾可读性和去重。
   return `${runId}:${analysisLabel}:${hashText(analysisText).slice(0, 24)}`;
 }
 
@@ -84,6 +85,7 @@ export async function analyzeAnswerEvidenceHits(input: {
   const clusterFilter = new Set((input.clusterIds || []).filter(Boolean));
   const batchFilter = new Set((input.batchIds || []).filter(Boolean));
   const queryIntentFilter = new Set((input.queryIntentTypes || []).map(normalizeQueryIntentType).filter(Boolean));
+  // 筛选在内存中完成，因为 answerRuns 已随项目一次性加载，且过滤条件来自页面多选状态。
   const answerRuns = project.answerRuns.filter((run) => {
     if (clusterFilter.size > 0 && !clusterFilter.has(run.query.clusterId)) return false;
     if (batchFilter.size > 0 && !batchFilter.has(run.samplingBatchId || "")) return false;
@@ -93,6 +95,7 @@ export async function analyzeAnswerEvidenceHits(input: {
   const evidenceOptions = buildProjectEvidenceOptions(project.contentAssets);
   if (evidenceOptions.length === 0) throw new Error("当前内容资产没有可用于对比的句级证据");
 
+  // 当前只核验“品牌优点”是否有内容资产证据支撑；品牌缺点与竞品维度暂不纳入命中率。
   const items: AdvantageAnalysisItem[] = answerRuns.flatMap((run) =>
     parseAnswerAnalysisOutput(run.answerAnalysis || "")
       .filter((section) => section.label === brandAdvantageLabel && section.status === "是")
@@ -117,6 +120,7 @@ export async function analyzeAnswerEvidenceHits(input: {
 
   const matchByItemKey = new Map<string, LlmMatch>();
   for (const chunk of chunkArray(items, 16)) {
+    // 控制单次提示词规模，避免优势条目与证据选项组合过大导致模型截断。
     const matches = await requestEvidenceHitMatches({
       baseUrl: config.baseUrl,
       apiKey: config.apiKey,
@@ -135,6 +139,7 @@ export async function analyzeAnswerEvidenceHits(input: {
     const rawMatch = matchByItemKey.get(item.itemKey);
     const evidenceId = typeof rawMatch?.evidenceSubmoduleId === "string" ? rawMatch.evidenceSubmoduleId : "";
     const evidence = evidenceId ? evidenceById.get(evidenceId) : null;
+    // LLM 返回 matched=true 但 evidenceSubmoduleId 无效时按未命中处理，避免写入悬空证据引用。
     const matched = Boolean(rawMatch?.matched) && Boolean(evidence);
     if (matched) matchedCount += 1;
 
@@ -329,6 +334,7 @@ async function cleanupStaleHits(runIds: string[], currentHashesByRun: Map<string
         AND "analysisLabel" = ${brandAdvantageLabel}
     `;
     for (const row of rows) {
+      // 回答分析重跑后，同一 run 的优势文本可能变化；删除当前结果集中已不存在的旧命中。
       if (currentHashes.has(row.analysisTextHash)) continue;
       await prisma.$executeRaw`
         DELETE FROM "AnswerEvidenceHit"
@@ -351,6 +357,7 @@ function groupCurrentHashesByRun(items: AdvantageAnalysisItem[]) {
 }
 
 async function ensureAnswerEvidenceHitTable() {
+  // 本表已在 Prisma schema 中声明；这里保留惰性建表，兼容尚未重建的本地 SQLite 数据库。
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "AnswerEvidenceHit" (
       "id" TEXT NOT NULL PRIMARY KEY,

@@ -31,21 +31,3 @@ export const evidenceTypes = [
   "trust_signal",
   "source_note"
 ] as const;
-
-export const stageLabels: Record<string, string> = {
-  discoverable: "可发现",
-  selected: "被选择",
-  absorbed: "被吸收",
-  attributed: "被归因",
-  stable: "可稳定"
-};
-
-export const taskTypeLabels: Record<string, string> = {
-  content_update: "内容更新",
-  technical_seo: "技术 SEO",
-  external_authority: "外部权威",
-  data_review: "数据核查",
-  compliance_review: "合规审核",
-  product_fact_update: "产品事实更新"
-};
-

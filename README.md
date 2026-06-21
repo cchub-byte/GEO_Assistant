@@ -1,6 +1,6 @@
 # GEO System
 
-本地可运行的 GEO（Generative Engine Optimization）系统，覆盖 Query集管理、多平台采集、答案解析、引用/吸收指标、五阶段诊断、任务、实验、策略库、外部权威、告警和报告。
+本地可运行的 GEO（Generative Engine Optimization）系统，覆盖 Query集管理、多平台采集、答案解析、引用/吸收指标、品牌画像分析、内容资产、内容写作和最新批次报告导出。
 
 ## Quick Start
 

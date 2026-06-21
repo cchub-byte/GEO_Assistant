@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   if (resolvedProjectId) {
     await syncBrandReferences(resolvedProjectId, [...brandTerms(oldBrand), ...legacySeedBrandTerms], primaryBrandName(nextBrand));
   }
-  for (const path of ["/", "/settings", "/sampling", "/content", "/findings", "/experiments", "/authority", "/alerts"]) {
+  for (const path of ["/", "/settings", "/sampling", "/sampling/query-clusters", "/references", "/content", "/writing"]) {
     revalidatePath(path);
   }
   redirect("/settings");

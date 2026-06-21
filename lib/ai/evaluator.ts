@@ -83,28 +83,6 @@ export async function extractEvidenceModules(text: string, llmConfig?: LlmConfig
   return ruleExtractEvidenceModules(text);
 }
 
-export async function generateBrief(input: {
-  findingTitle: string;
-  stage: string;
-  queryCluster: string;
-  evidence: string;
-}, llmConfig?: LlmConfigLike | null) {
-  const config = resolveEvaluatorLlmConfig(llmConfig, "optimizationBriefGeneration");
-  if (config) {
-    const judged = await judgeJson<{ brief: string; strategy: string; risk: string }>(
-      "Generate a GEO optimization brief in Chinese.",
-      input,
-      config
-    );
-    if (judged) return judged;
-  }
-  return {
-    brief: `围绕「${input.queryCluster}」补充可抽取证据模块，优先修复 ${input.stage} 阶段问题：${input.findingTitle}。`,
-    strategy: "补充定义、对比、限制条件、价格/规格和更新时间，并用表格或列表承载关键事实。",
-    risk: "避免伪造权威和过度承诺；上线后必须做重复采样复测。"
-  };
-}
-
 async function judgeJson<T>(instruction: string, payload: unknown, config: ResolvedLlmConfig): Promise<T | null> {
   try {
     const content = await requestChatCompletion({

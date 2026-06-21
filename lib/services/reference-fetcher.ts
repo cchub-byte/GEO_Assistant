@@ -41,6 +41,7 @@ export async function fetchReferenceDetail(url: string): Promise<ReferenceFetchD
   const targetUrl = urlResolution.url;
   let fetchFailure = "";
 
+  // 先尝试轻量 fetch，失败后再启用 Playwright；这样多数静态页面不会付出浏览器渲染成本。
   try {
     const { html, finalUrl } = await fetchHtml(targetUrl);
     const article = extractArticle(html, finalUrl);
@@ -93,6 +94,7 @@ async function fetchHtml(inputUrl: string) {
       if (!location) {
         throw new ReferenceFetchError("页面返回重定向，但缺少 Location。");
       }
+      // 每一次重定向都重新校验目标 URL，防止公开地址跳转到内网或本机地址。
       currentUrl = await validatePublicHttpUrl(new URL(location, currentUrl).toString());
       continue;
     }
@@ -178,6 +180,7 @@ async function fetchHtmlWithPlaywright(inputUrl: string) {
     await context.route("**/*", async (route) => {
       const requestUrl = route.request().url();
       try {
+        // 渲染页面中的子资源同样需要 SSRF 防护，非公开 http(s) 请求直接拦截。
         const parsed = new URL(requestUrl);
         if (parsed.protocol === "http:" || parsed.protocol === "https:") {
           await validatePublicHttpUrl(requestUrl);
@@ -241,6 +244,7 @@ async function validatePublicHttpUrl(value: string) {
     throw new ReferenceFetchError("URL 不应包含用户名或密码。", { retryable: false });
   }
 
+  // DNS 解析后的每个地址都要检查，避免域名解析到私网、保留地址或本机地址。
   let addresses: Array<{ address: string }>;
   try {
     addresses = await lookup(parsed.hostname, { all: true, verbatim: true });
@@ -330,6 +334,7 @@ function detectVerificationPage(html: string, finalUrl: string) {
   const bodySignals = pageSignals.some((signal) => bodyText.includes(signal));
   const likelyVerificationBody = bodySignals && bodyText.length <= 2500;
 
+  // 仅在正文较短且命中验证信号时判定为风控页，降低长文章误含“验证码”等词的误杀概率。
   if (urlSignals || titleSignals || likelyVerificationBody) {
     return "目标站点返回的是安全验证、验证码或风控页面，而不是正文 HTML。";
   }
@@ -345,6 +350,7 @@ function extractArticle(
   const $ = cheerio.load(html);
   const fallbackMetadata = collectHtmlMetadata($);
 
+  // 清除导航、脚本和布局噪音后再评分正文区域，减少菜单和页脚进入引用正文。
   $("script, style, noscript, iframe, svg, nav, header, footer, aside, form").remove();
 
   const bodyText = extractReadableText($);
@@ -410,6 +416,7 @@ function collectHtmlMetadata($: CheerioAPI) {
 function collectJsonLdMetadata($: CheerioAPI) {
   const candidates: Array<Record<string, unknown>> = [];
 
+  // JSON-LD 常包含比页面可见文本更稳定的标题、作者和发布时间。
   $("script[type*='ld+json']").each((_, element) => {
     const raw = $(element).text();
     if (!raw.trim()) return;
@@ -520,6 +527,7 @@ function extractReadableText($: CheerioAPI) {
   let bestText = "";
   let bestScore = 0;
 
+  // 优先评估常见正文容器；若容器太短或得分低，再回退到完整 body。
   for (const selector of selectors) {
     $(selector).each((_, element) => {
       const text = extractTextFromSelection($, $(element));
