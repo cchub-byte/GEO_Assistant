@@ -1,0 +1,15 @@
+.next
+node_modules
+coverage
+playwright-report
+test-results
+prisma/*.db*
+.env
+.env.local
+.geo-browser-profiles
+.DS_Store
+.npm-cache
+*.log
+*.tsbuildinfo
+.codex-*.png
+tmp_*
