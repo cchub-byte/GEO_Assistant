@@ -1,13 +1,15 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { DEFAULT_QUERY_INTENT_TYPE, normalizeQueryIntentType } from "@/lib/query-intents";
 import { safeRedirectPath } from "@/lib/routes";
+
+const DEFAULT_QUERY_CLUSTER_INTENT_TYPE = "general";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
   const redirectTo = safeRedirectPath(formData.get("redirectTo"), "/sampling");
   const projectId = String(formData.get("projectId") || "");
   const name = String(formData.get("name") || "").trim();
-  const intentType = String(formData.get("intentType") || "").trim();
   const defaultEngineIds = formData.getAll("defaultEngineId").map((engineId) => String(engineId)).filter(Boolean);
   const queryTexts = String(formData.get("queryTexts") || "")
     .split(/\r?\n/)
@@ -15,17 +17,12 @@ export async function POST(request: Request) {
     .filter(Boolean);
   const queryIntentTypes = parseQueryIntentTypes(formData.get("queryIntents"));
 
-  if (projectId && name && intentType) {
+  if (projectId && name) {
     await prisma.queryCluster.create({
       data: {
         projectId,
         name,
-        intentType,
-        funnelStage: String(formData.get("funnelStage") || "consideration"),
-        priority: Number(formData.get("priority") || 3),
-        businessValueScore: Number(formData.get("businessValueScore") || 50),
-        targetMetric: String(formData.get("targetMetric") || "VAIR"),
-        ownerTeam: String(formData.get("ownerTeam") || "Product"),
+        intentType: DEFAULT_QUERY_CLUSTER_INTENT_TYPE,
         defaultEngineIds: JSON.stringify(defaultEngineIds),
         status: String(formData.get("status") || "active"),
         ...(queryTexts.length > 0
@@ -33,12 +30,9 @@ export async function POST(request: Request) {
               queries: {
                 create: queryTexts.map((queryText, index) => ({
                   queryText,
-                  language: "zh-CN",
                   region: "CN",
-                  device: "desktop",
                   status: "active",
-                  intentType: queryIntentTypes[index] || intentType,
-                  expectedEvidenceTypes: "definition,pricing,specification,comparison,constraint,trust_signal"
+                  intentType: normalizeQueryIntentType(queryIntentTypes[index] || DEFAULT_QUERY_INTENT_TYPE, index)
                 }))
               }
             }
@@ -54,7 +48,7 @@ function parseQueryIntentTypes(value: FormDataEntryValue | null) {
   try {
     const parsed = JSON.parse(value) as unknown;
     if (Array.isArray(parsed)) {
-      return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+        return parsed.map((item, index) => normalizeQueryIntentType(item, index)).filter(Boolean);
     }
   } catch {
     return [];

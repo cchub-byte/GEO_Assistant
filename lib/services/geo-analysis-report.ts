@@ -6,6 +6,7 @@ import {
   buildBrandWebTargets,
 } from "@/lib/services/dashboard-analytics";
 import { buildEvidenceSubmodules } from "@/lib/services/evidence-submodules";
+import { normalizeQueryIntentType } from "@/lib/query-intents";
 import { brandTerms, percentage, primaryBrandName } from "@/lib/utils";
 
 type WorkflowStatusRow = {
@@ -121,6 +122,7 @@ export async function buildLatestGeoAnalysisReport(projectId: string): Promise<G
   const batchLabels = batches.map((batch) => batch.name?.trim() || batch.id);
   const batchLabel = batchLabels.length > 0 ? batchLabels.join("、") : latestBatchIds.join("、");
   const successfulRuns = runs.filter((run) => run.status === "succeeded" && run.answerText.trim());
+  const normalizedQueryIntentById = buildNormalizedQueryIntentById(project.queryClusters);
   const platformAnalytics = buildBasicAnalytics(
     project.engineConfigs,
     successfulRuns,
@@ -131,6 +133,7 @@ export async function buildLatestGeoAnalysisReport(projectId: string): Promise<G
   const intentAnalytics = buildIntentAnalytics(
     project.engineConfigs,
     successfulRuns,
+    normalizedQueryIntentById,
     brandTerms(project.brandProfile),
     project.brandProfile?.competitors || [],
     buildBrandWebTargets(project.brandProfile)
@@ -245,13 +248,13 @@ function buildQuestionSet(runs: GeoReportRun[], clusters: GeoReportQuestionClust
   const emittedQueryIds = new Set<string>();
   const questions: GeoReportQuestion[] = [];
   for (const cluster of clusters) {
-    for (const query of cluster.queries) {
+    for (const [queryIndex, query] of cluster.queries.entries()) {
       if (!runQueryIds.has(query.id)) continue;
       emittedQueryIds.add(query.id);
       questions.push({
         clusterName: cluster.name,
         queryText: query.queryText,
-        intentType: normalizeQueryIntentType(query.intentType)
+        intentType: normalizeQueryIntentType(query.intentType, queryIndex)
       });
     }
   }
@@ -265,6 +268,16 @@ function buildQuestionSet(runs: GeoReportRun[], clusters: GeoReportQuestionClust
     });
   }
   return questions;
+}
+
+function buildNormalizedQueryIntentById(clusters: GeoReportQuestionCluster[]) {
+  const normalized = new Map<string, string>();
+  for (const cluster of clusters) {
+    for (const [queryIndex, query] of cluster.queries.entries()) {
+      normalized.set(query.id, normalizeQueryIntentType(query.intentType, queryIndex));
+    }
+  }
+  return normalized;
 }
 
 function renderReportOverview(input: GeoAnalysisReportRenderInput) {
@@ -476,16 +489,17 @@ function renderEvidenceModulesSection(modules: GeoReportEvidenceSubmodule[]) {
 function buildIntentAnalytics(
   engines: Parameters<typeof buildBasicAnalytics>[0],
   runs: GeoReportRun[],
+  normalizedQueryIntentById: Map<string, string>,
   brandTermList: string[],
   competitors: Parameters<typeof buildBasicAnalytics>[3],
   brandWebTargets: string[]
 ) {
-  const intentTypes = [...new Set(runs.map((run) => normalizeQueryIntentType(run.query.intentType)))].sort(compareIntentTypes);
+  const intentTypes = [...new Set(runs.map((run) => normalizedQueryIntentById.get(run.queryId) || normalizeQueryIntentType(run.query.intentType)))].sort(compareIntentTypes);
   return intentTypes.map((intentType) => ({
     intentType,
     platformAnalytics: buildBasicAnalytics(
       engines,
-      runs.filter((run) => normalizeQueryIntentType(run.query.intentType) === intentType),
+      runs.filter((run) => (normalizedQueryIntentById.get(run.queryId) || normalizeQueryIntentType(run.query.intentType)) === intentType),
       brandTermList,
       competitors,
       brandWebTargets
@@ -503,10 +517,6 @@ function intentSortWeight(value: string) {
   const normalized = normalizeQueryIntentType(value);
   const index = reportIntentOrder.indexOf(normalized);
   return index >= 0 ? index : reportIntentOrder.length;
-}
-
-function normalizeQueryIntentType(value: string) {
-  return String(value || "").trim() || "未设置意图";
 }
 
 function formatBrandPositionCell(item: ReturnType<typeof buildBasicAnalytics>[number]) {

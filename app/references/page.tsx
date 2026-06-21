@@ -9,6 +9,7 @@ import {
   getProfileAnalysisArchive
 } from "@/lib/services/profile-analysis-archive";
 import { buildCompetitorTerms, buildCurrentBrandTerms } from "@/lib/services/dashboard-analytics";
+import { normalizeQueryIntentType } from "@/lib/query-intents";
 import { normalizeReferenceSourceUrl } from "@/lib/services/reference-url";
 import { getDefaultProjectId } from "@/lib/services/read";
 
@@ -371,9 +372,8 @@ function serializeReferenceGroups(groups: ReferenceSourceGroup[]): ReferenceResu
       id: source.id,
       siteLabel: source.siteName || source.domain || source.sourceType || "-",
       clusterName: source.run.query.cluster.name,
-      clusterIntentType: source.run.query.cluster.intentType,
       queryText: source.run.query.queryText,
-      queryIntentType: source.run.query.intentType,
+      queryIntentType: normalizeQueryIntentType(source.run.query.intentType),
       platform: source.run.engineConfig.displayName,
       positionLabel: source.position ? String(source.position) : "-",
       summary: textPreview(source.summary || source.bodyText || source.content || "", 180),

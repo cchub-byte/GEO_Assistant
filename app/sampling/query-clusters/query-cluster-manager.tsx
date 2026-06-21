@@ -4,6 +4,7 @@ import { AdvancedAnalyticsSection } from "@/app/advanced-analytics-section";
 import { BasicAnalyticsTable } from "@/app/basic-analytics-table";
 import type { AdvancedPlatformAnalytics, BasicPlatformAnalytics } from "@/lib/services/dashboard-analytics";
 import type { GeneratedQueryCandidate, GeneratedQueryClusterCandidate } from "@/lib/services/query-ai";
+import { DEFAULT_QUERY_INTENT_TYPE, QUERY_INTENT_OPTIONS, fallbackQueryIntentType, normalizeQueryIntentType } from "@/lib/query-intents";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -12,12 +13,8 @@ export type QueryManagerItem = {
   id: string;
   queryText: string;
   intentType: string;
-  language: string;
   region: string;
-  persona: string;
-  device: string;
   status: string;
-  expectedEvidenceTypes: string;
 };
 
 export type EngineManagerItem = {
@@ -28,12 +25,6 @@ export type EngineManagerItem = {
 export type QueryClusterManagerItem = {
   id: string;
   name: string;
-  intentType: string;
-  funnelStage: string;
-  priority: number;
-  businessValueScore: number;
-  targetMetric: string;
-  ownerTeam: string;
   defaultEngineIds: string[] | null;
   status: string;
   samplingRecordCount: number;
@@ -62,8 +53,6 @@ type QueryIntentGroup = {
   queries: QueryIntentGroupQuery[];
 };
 
-const QUERY_INTENT_OPTIONS = ["场景模糊", "场景明确", "意图明确"] as const;
-
 export function QueryClusterManager({
   projectId,
   clusters,
@@ -75,7 +64,6 @@ export function QueryClusterManager({
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createClusterName, setCreateClusterName] = useState("");
-  const [createIntentType, setCreateIntentType] = useState("recommendation");
   const [createQueryTexts, setCreateQueryTexts] = useState("");
   const [createQueryIntents, setCreateQueryIntents] = useState("");
   const [queryGenerationLoading, setQueryGenerationLoading] = useState(false);
@@ -113,7 +101,6 @@ export function QueryClusterManager({
 
   function openCreateModal() {
     setCreateClusterName("");
-    setCreateIntentType("recommendation");
     setCreateQueryTexts("");
     setCreateQueryIntents("");
     setQueryGenerationError("");
@@ -135,13 +122,6 @@ export function QueryClusterManager({
       return;
     }
 
-    const intentType = createIntentType.trim();
-    if (!intentType) {
-      setQueryGenerationError("请先填写意图类型");
-      setQueryGenerationMessage("");
-      return;
-    }
-
     setQueryGenerationLoading(true);
     setQueryGenerationError("");
     setQueryGenerationMessage("");
@@ -150,7 +130,7 @@ export function QueryClusterManager({
       const response = await fetch("/api/query-clusters/generate-queries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, clusterName, intentType })
+        body: JSON.stringify({ projectId, clusterName })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `AI 生成 Query 失败：HTTP ${response.status}`);
@@ -277,11 +257,7 @@ export function QueryClusterManager({
             <thead>
               <tr>
                 <th>条目</th>
-                <th>意图</th>
-                <th>漏斗 / 语言</th>
-                <th>优先级 / 设备</th>
-                <th>指标 / 用户角色</th>
-                <th>负责人 / 证据</th>
+                <th>Query 意图</th>
                 <th>默认平台 / 地区</th>
                 <th>状态</th>
                 <th>操作</th>
@@ -290,7 +266,7 @@ export function QueryClusterManager({
             {clusters.length === 0 ? (
               <tbody>
                 <tr>
-                  <td colSpan={9} className="hint">暂无 Query集</td>
+                  <td colSpan={5} className="hint">暂无 Query集</td>
                 </tr>
               </tbody>
             ) : (
@@ -299,7 +275,7 @@ export function QueryClusterManager({
                 return (
                   <tbody key={cluster.id} className="reference-group-body">
                     <tr className="reference-parent-row">
-                      <td className="reference-parent-cell" colSpan={9}>
+                      <td className="reference-parent-cell" colSpan={5}>
                         <div className="reference-parent-head cluster-parent-head">
                           <button
                             className="reference-expand-button"
@@ -314,11 +290,6 @@ export function QueryClusterManager({
                           <div className="reference-parent-main">
                             <strong>{cluster.name}</strong>
                             <div className="reference-parent-meta">
-                              <span>意图：{cluster.intentType}</span>
-                              <span>漏斗：{cluster.funnelStage}</span>
-                              <span>优先级：{cluster.priority}</span>
-                              <span>指标：{cluster.targetMetric || "未设置"}</span>
-                              <span>负责人：{cluster.ownerTeam || "未设置"}</span>
                               <span>默认平台：{formatEngineNames(cluster.defaultEngineIds, engines)}</span>
                             </div>
                           </div>
@@ -344,7 +315,7 @@ export function QueryClusterManager({
                       ? cluster.queries.length === 0
                         ? (
                             <tr className="reference-child-row">
-                              <td colSpan={9} className="hint cluster-empty-child-cell">
+                              <td colSpan={5} className="hint cluster-empty-child-cell">
                                 当前 Query集下暂无 Query。
                               </td>
                             </tr>
@@ -356,13 +327,7 @@ export function QueryClusterManager({
                                 <div>{query.queryText}</div>
                               </td>
                               <td>
-                                <span className="badge badge-info">{query.intentType}</span>
-                              </td>
-                              <td>{query.language}</td>
-                              <td>{query.device}</td>
-                              <td>{query.persona || <span className="hint">未设置</span>}</td>
-                              <td className="cluster-evidence-cell">
-                                {query.expectedEvidenceTypes || <span className="hint">未设置</span>}
+                                <span className="badge badge-info">{normalizeQueryIntentLabel(query.intentType)}</span>
                               </td>
                               <td>{query.region}</td>
                               <td>
@@ -420,9 +385,7 @@ export function QueryClusterManager({
               <tr>
                 <th>Query</th>
                 <th>所属 Query集</th>
-                <th>语言 / 地区</th>
-                <th>设备 / 用户角色</th>
-                <th>期望证据</th>
+                <th>地区</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
@@ -430,7 +393,7 @@ export function QueryClusterManager({
             {intentGroups.length === 0 ? (
               <tbody>
                 <tr>
-                  <td colSpan={7} className="hint">暂无 Query</td>
+                  <td colSpan={5} className="hint">暂无 Query</td>
                 </tr>
               </tbody>
             ) : (
@@ -439,7 +402,7 @@ export function QueryClusterManager({
                 return (
                   <tbody key={group.intentType} className="reference-group-body">
                     <tr className="reference-parent-row">
-                      <td className="reference-parent-cell" colSpan={7}>
+                      <td className="reference-parent-cell" colSpan={5}>
                         <div className="reference-parent-head cluster-parent-head">
                           <button
                             className="reference-expand-button"
@@ -475,17 +438,7 @@ export function QueryClusterManager({
                               <span className="reference-child-label">Query集</span>
                               <div>{query.clusterName}</div>
                             </td>
-                            <td>
-                              <div>{query.language}</div>
-                              <div className="hint">{query.region}</div>
-                            </td>
-                            <td>
-                              <div>{query.device}</div>
-                              <div className="hint">{query.persona || "未设置"}</div>
-                            </td>
-                            <td className="cluster-evidence-cell">
-                              {query.expectedEvidenceTypes || <span className="hint">未设置</span>}
-                            </td>
+                            <td>{query.region}</td>
                             <td>
                               <span className={`badge badge-${query.status === "active" ? "good" : "neutral"}`}>
                                 {query.status}
@@ -573,7 +526,6 @@ export function QueryClusterManager({
                           <div className="reference-parent-main">
                             <strong>{cluster.name}</strong>
                             <div className="reference-parent-meta">
-                              <span>意图：{cluster.intentType}</span>
                               <span>状态：{cluster.status}</span>
                             </div>
                           </div>
@@ -666,47 +618,6 @@ export function QueryClusterManager({
                   required
                 />
               </label>
-              <div className="form-grid">
-                <label>
-                  意图类型
-                  <input
-                    name="intentType"
-                    placeholder="recommendation"
-                    value={createIntentType}
-                    onChange={(event) => setCreateIntentType(event.target.value)}
-                    required
-                  />
-                </label>
-                <label>
-                  漏斗阶段
-                  <select name="funnelStage" defaultValue="consideration">
-                    <option value="awareness">awareness</option>
-                    <option value="consideration">consideration</option>
-                    <option value="decision">decision</option>
-                    <option value="retention">retention</option>
-                  </select>
-                </label>
-              </div>
-              <div className="form-grid">
-                <label>
-                  优先级
-                  <input name="priority" type="number" min="1" defaultValue="3" />
-                </label>
-                <label>
-                  业务价值分
-                  <input name="businessValueScore" type="number" min="0" max="100" defaultValue="50" />
-                </label>
-              </div>
-              <div className="form-grid">
-                <label>
-                  目标指标
-                  <input name="targetMetric" defaultValue="VAIR" />
-                </label>
-                <label>
-                  负责人团队
-                  <input name="ownerTeam" defaultValue="Product" />
-                </label>
-              </div>
               <label>
                 状态
                 <select name="status" defaultValue="active">
@@ -775,7 +686,7 @@ export function QueryClusterManager({
                     <div className="section-head">
                       <div>
                         <h3>{cluster.name}</h3>
-                        <div className="hint">{cluster.intentType} / {cluster.queries.length} 条 Query</div>
+                        <div className="hint">{cluster.queries.length} 条 Query</div>
                       </div>
                       <span className="badge badge-info">Query集 {index + 1}</span>
                     </div>
@@ -783,7 +694,7 @@ export function QueryClusterManager({
                       {cluster.queries.map((query, queryIndex) => (
                         <li className="generated-query-item" key={`${query.queryText}-${queryIndex}`}>
                           <span>{query.queryText}</span>
-                          <span className="badge badge-info">{query.intentType || cluster.intentType}</span>
+                          <span className="badge badge-info">{query.intentType}</span>
                         </li>
                       ))}
                     </ol>
@@ -833,41 +744,6 @@ export function QueryClusterManager({
                   Query集名称
                   <input name="name" defaultValue={detailCluster.name} required />
                 </label>
-                <div className="form-grid">
-                  <label>
-                    意图类型
-                    <input name="intentType" defaultValue={detailCluster.intentType} required />
-                  </label>
-                  <label>
-                    漏斗阶段
-                    <select name="funnelStage" defaultValue={detailCluster.funnelStage}>
-                      <option value="awareness">awareness</option>
-                      <option value="consideration">consideration</option>
-                      <option value="decision">decision</option>
-                      <option value="retention">retention</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="form-grid">
-                  <label>
-                    优先级
-                    <input name="priority" type="number" min="1" defaultValue={detailCluster.priority} />
-                  </label>
-                  <label>
-                    业务价值分
-                    <input name="businessValueScore" type="number" min="0" max="100" defaultValue={detailCluster.businessValueScore} />
-                  </label>
-                </div>
-                <div className="form-grid">
-                  <label>
-                    目标指标
-                    <input name="targetMetric" defaultValue={detailCluster.targetMetric} />
-                  </label>
-                  <label>
-                    负责人团队
-                    <input name="ownerTeam" defaultValue={detailCluster.ownerTeam} />
-                  </label>
-                </div>
                 <label>
                   状态
                   <select name="status" defaultValue={detailCluster.status}>
@@ -925,30 +801,14 @@ export function QueryClusterManager({
                 </label>
                 <label>
                   Query 意图
-                  <QueryIntentSelect name="intentType" defaultValue={defaultQueryIntentForNew(detailCluster.intentType)} />
+                  <QueryIntentSelect name="intentType" defaultValue={defaultQueryIntentForNew()} />
                 </label>
                 <div className="form-grid">
-                  <label>
-                    语言
-                    <select name="language" defaultValue="zh-CN">
-                      <option value="zh-CN">zh-CN</option>
-                      <option value="en-US">en-US</option>
-                    </select>
-                  </label>
                   <label>
                     地区
                     <select name="region" defaultValue="CN">
                       <option value="CN">CN</option>
                       <option value="US">US</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="form-grid">
-                  <label>
-                    设备
-                    <select name="device" defaultValue="desktop">
-                      <option value="desktop">desktop</option>
-                      <option value="mobile">mobile</option>
                     </select>
                   </label>
                   <label>
@@ -960,17 +820,6 @@ export function QueryClusterManager({
                     </select>
                   </label>
                 </div>
-                <label>
-                  用户角色
-                  <input name="persona" placeholder="可选" />
-                </label>
-                <label>
-                  期望证据类型
-                  <input
-                    name="expectedEvidenceTypes"
-                    defaultValue="definition,pricing,specification,comparison,constraint,trust_signal"
-                  />
-                </label>
                 <div className="modal-actions">
                   <button type="submit">新增问题</button>
                 </div>
@@ -995,26 +844,10 @@ export function QueryClusterManager({
                         </label>
                         <div className="form-grid">
                           <label>
-                            语言
-                            <select name="language" defaultValue={query.language}>
-                              <option value="zh-CN">zh-CN</option>
-                              <option value="en-US">en-US</option>
-                            </select>
-                          </label>
-                          <label>
                             地区
                             <select name="region" defaultValue={query.region}>
                               <option value="CN">CN</option>
                               <option value="US">US</option>
-                            </select>
-                          </label>
-                        </div>
-                        <div className="form-grid">
-                          <label>
-                            设备
-                            <select name="device" defaultValue={query.device}>
-                              <option value="desktop">desktop</option>
-                              <option value="mobile">mobile</option>
                             </select>
                           </label>
                           <label>
@@ -1026,14 +859,6 @@ export function QueryClusterManager({
                             </select>
                           </label>
                         </div>
-                        <label>
-                          用户角色
-                          <input name="persona" defaultValue={query.persona} />
-                        </label>
-                        <label>
-                          期望证据类型
-                          <input name="expectedEvidenceTypes" defaultValue={query.expectedEvidenceTypes} />
-                        </label>
                         <div className="modal-actions">
                           <button type="submit">保存 Query</button>
                         </div>
@@ -1137,7 +962,7 @@ function buildQueryIntentGroups(clusters: QueryClusterManagerItem[]): QueryInten
 }
 
 function normalizeQueryIntentLabel(value: string) {
-  return value.trim() || "未设置意图";
+  return normalizeQueryIntentType(value);
 }
 
 function compareQueryIntentTypes(left: string, right: string) {
@@ -1188,14 +1013,11 @@ function EngineCheckboxList({ engines, selectedEngineIds }: { engines: EngineMan
 }
 
 function QueryIntentSelect({ name, defaultValue }: { name: string; defaultValue: string }) {
-  const normalizedDefaultValue = defaultValue.trim() || "意图明确";
-  const options = QUERY_INTENT_OPTIONS.includes(normalizedDefaultValue as (typeof QUERY_INTENT_OPTIONS)[number])
-    ? [...QUERY_INTENT_OPTIONS]
-    : [normalizedDefaultValue, ...QUERY_INTENT_OPTIONS];
+  const normalizedDefaultValue = normalizeQueryIntentType(defaultValue);
 
   return (
     <select name={name} defaultValue={normalizedDefaultValue} required>
-      {options.map((option) => (
+      {QUERY_INTENT_OPTIONS.map((option) => (
         <option key={option} value={option}>
           {option}
         </option>
@@ -1204,10 +1026,8 @@ function QueryIntentSelect({ name, defaultValue }: { name: string; defaultValue:
   );
 }
 
-function defaultQueryIntentForNew(clusterIntentType: string) {
-  return QUERY_INTENT_OPTIONS.includes(clusterIntentType as (typeof QUERY_INTENT_OPTIONS)[number])
-    ? clusterIntentType
-    : "意图明确";
+function defaultQueryIntentForNew() {
+  return DEFAULT_QUERY_INTENT_TYPE;
 }
 
 function defaultEngineIdsForCluster(defaultEngineIds: string[] | null, engines: EngineManagerItem[]) {
@@ -1229,12 +1049,11 @@ function normalizeGeneratedClusters(value: unknown): GeneratedQueryClusterCandid
 
 function normalizeGeneratedCluster(value: unknown): GeneratedQueryClusterCandidate | null {
   if (!value || typeof value !== "object") return null;
-  const raw = value as { name?: unknown; intentType?: unknown; queries?: unknown };
+  const raw = value as { name?: unknown; queries?: unknown };
   const name = String(raw.name || "").trim();
-  const intentType = String(raw.intentType || "").trim();
   const queries = normalizeGeneratedQueries(raw.queries).slice(0, 10);
-  if (!name || !intentType || queries.length === 0) return null;
-  return { name, intentType, queries };
+  if (!name || queries.length === 0) return null;
+  return { name, queries };
 }
 
 function normalizeGeneratedQueries(value: unknown): GeneratedQueryCandidate[] {
@@ -1255,12 +1074,6 @@ function normalizeGeneratedQuery(value: unknown, index: number): GeneratedQueryC
   if (!queryText) return null;
   return {
     queryText,
-    intentType: String(raw.intentType || raw.intent || fallbackQueryIntentType(index)).trim()
+    intentType: normalizeQueryIntentType(raw.intentType || raw.intent, index)
   };
-}
-
-function fallbackQueryIntentType(index: number) {
-  if (index < 3) return "场景模糊";
-  if (index < 6) return "场景明确";
-  return "意图明确";
 }

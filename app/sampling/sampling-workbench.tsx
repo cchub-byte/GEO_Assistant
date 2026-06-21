@@ -15,7 +15,6 @@ export type SamplingPlanView = {
 export type QueryOptionView = {
   id: string;
   queryText: string;
-  language: string;
   region: string;
   status: string;
 };
@@ -23,7 +22,6 @@ export type QueryOptionView = {
 export type QueryClusterView = {
   id: string;
   name: string;
-  intentType: string;
   status: string;
   defaultEngineIds: string[] | null;
   queries: QueryOptionView[];
@@ -753,7 +751,6 @@ export function SamplingWorkbench({
                   />
                   <span>
                     <strong>{cluster.name}</strong>
-                    <span className="hint">{cluster.intentType}</span>
                   </span>
                 </label>
               ))
@@ -1149,7 +1146,7 @@ export function SamplingWorkbench({
                         />
                         <span>
                           <strong>{cluster.name}</strong>
-                          <span className="hint">{cluster.intentType} / {cluster.status}</span>
+                          <span className="hint">{cluster.status}</span>
                         </span>
                       </label>
                     ))
@@ -1206,9 +1203,7 @@ export function SamplingWorkbench({
                         />
                         <span>
                           <strong>{query.queryText}</strong>
-                          <span className="hint">
-                            {query.clusterName} / {query.language} / {query.region}
-                          </span>
+                          <span className="hint">{query.clusterName} / {query.region}</span>
                         </span>
                       </label>
                     ))

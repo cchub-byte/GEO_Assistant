@@ -1,6 +1,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import { fallbackQueryIntentType, normalizeQueryIntentType } from "@/lib/query-intents";
 import type { GeneratedQueryClusterCandidate } from "@/lib/services/query-ai";
+
+const DEFAULT_QUERY_CLUSTER_INTENT_TYPE = "general";
 
 export async function POST(request: Request) {
   try {
@@ -33,23 +36,15 @@ export async function POST(request: Request) {
           data: {
             projectId,
             name: cluster.name,
-            intentType: cluster.intentType,
-            funnelStage: "consideration",
-            priority: 3,
-            businessValueScore: 50,
-            targetMetric: "VAIR",
-            ownerTeam: "Product",
+            intentType: DEFAULT_QUERY_CLUSTER_INTENT_TYPE,
             defaultEngineIds: JSON.stringify(defaultEngineIds),
             status: "active",
             queries: {
-              create: cluster.queries.map((query) => ({
+              create: cluster.queries.map((query, index) => ({
                 queryText: query.queryText,
-                language: "zh-CN",
                 region: "CN",
-                device: "desktop",
                 status: "active",
-                intentType: query.intentType || cluster.intentType,
-                expectedEvidenceTypes: "definition,pricing,specification,comparison,constraint,trust_signal"
+                intentType: normalizeQueryIntentType(query.intentType, index)
               }))
             }
           }
@@ -74,17 +69,16 @@ function normalizeGeneratedClusters(value: unknown): GeneratedQueryClusterCandid
 
 function normalizeGeneratedCluster(value: unknown): GeneratedQueryClusterCandidate | null {
   if (!value || typeof value !== "object") return null;
-  const raw = value as { name?: unknown; intentType?: unknown; queries?: unknown };
+  const raw = value as { name?: unknown; queries?: unknown };
   const name = String(raw.name || "").trim();
-  const intentType = String(raw.intentType || "").trim();
   const queries = Array.isArray(raw.queries)
     ? raw.queries
         .map((query, index) => normalizeGeneratedQuery(query, index))
         .filter((query): query is GeneratedQueryClusterCandidate["queries"][number] => Boolean(query))
         .slice(0, 10)
     : [];
-  if (!name || !intentType || queries.length === 0) return null;
-  return { name, intentType, queries };
+  if (!name || queries.length === 0) return null;
+  return { name, queries };
 }
 
 function normalizeGeneratedQuery(value: unknown, index: number): GeneratedQueryClusterCandidate["queries"][number] | null {
@@ -98,12 +92,6 @@ function normalizeGeneratedQuery(value: unknown, index: number): GeneratedQueryC
   if (!queryText) return null;
   return {
     queryText,
-    intentType: String(raw.intentType || raw.intent || fallbackQueryIntentType(index)).trim()
+    intentType: normalizeQueryIntentType(raw.intentType || raw.intent, index)
   };
-}
-
-function fallbackQueryIntentType(index: number) {
-  if (index < 3) return "场景模糊";
-  if (index < 6) return "场景明确";
-  return "意图明确";
 }

@@ -7,6 +7,7 @@ import {
 } from "@/lib/services/dashboard-analytics";
 import { getDashboard } from "@/lib/services/read";
 import { brandTerms } from "@/lib/utils";
+import { normalizeQueryIntentType } from "@/lib/query-intents";
 import { QueryClusterManager } from "./query-cluster-manager";
 import type { EngineManagerItem, QueryClusterManagerItem } from "./query-cluster-manager";
 
@@ -40,26 +41,16 @@ export default async function QueryClustersPage() {
     return {
       id: cluster.id,
       name: cluster.name,
-      intentType: cluster.intentType,
-      funnelStage: cluster.funnelStage,
-      priority: cluster.priority,
-      businessValueScore: cluster.businessValueScore,
-      targetMetric: cluster.targetMetric,
-      ownerTeam: cluster.ownerTeam,
       defaultEngineIds: parseDefaultEngineIds(cluster.defaultEngineIds),
       status: cluster.status,
       samplingRecordCount: samplingRunCount + batches.length,
       samplingBatches: batches,
-      queries: cluster.queries.map((query) => ({
+      queries: cluster.queries.map((query, queryIndex) => ({
         id: query.id,
         queryText: query.queryText,
-        intentType: query.intentType,
-        language: query.language,
+        intentType: normalizeQueryIntentType(query.intentType, queryIndex),
         region: query.region,
-        persona: query.persona || "",
-        device: query.device,
-        status: query.status,
-        expectedEvidenceTypes: query.expectedEvidenceTypes || ""
+        status: query.status
       }))
     };
   });

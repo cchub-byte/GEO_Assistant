@@ -3,6 +3,7 @@ import { parseAnswerAnalysisOutput } from "@/lib/services/answer-analysis";
 import { buildEvidenceSubmodules, type EvidenceSubmodule } from "@/lib/services/evidence-submodules";
 import { assertUsableLlmConfig } from "@/lib/services/llm-models";
 import { requestChatCompletion } from "@/lib/services/llm-chat";
+import { normalizeQueryIntentType } from "@/lib/query-intents";
 import { hashText } from "@/lib/utils";
 
 const brandAdvantageLabel = "提及品牌优点";
@@ -68,6 +69,11 @@ export async function analyzeAnswerEvidenceHits(input: {
         },
         orderBy: [{ runAt: "desc" }, { id: "desc" }]
       },
+      queryClusters: {
+        include: {
+          queries: { orderBy: { createdAt: "asc" } }
+        }
+      },
       contentAssets: {
         include: {
           snapshots: {
@@ -84,12 +90,14 @@ export async function analyzeAnswerEvidenceHits(input: {
   const config = assertUsableLlmConfig(project.llmConfig, "answerEvidenceHitAnalysis");
   const clusterFilter = new Set((input.clusterIds || []).filter(Boolean));
   const batchFilter = new Set((input.batchIds || []).filter(Boolean));
+  const normalizedQueryIntentById = buildNormalizedQueryIntentById(project.queryClusters);
   const queryIntentFilter = new Set((input.queryIntentTypes || []).map(normalizeQueryIntentType).filter(Boolean));
   // 筛选在内存中完成，因为 answerRuns 已随项目一次性加载，且过滤条件来自页面多选状态。
   const answerRuns = project.answerRuns.filter((run) => {
     if (clusterFilter.size > 0 && !clusterFilter.has(run.query.clusterId)) return false;
     if (batchFilter.size > 0 && !batchFilter.has(run.samplingBatchId || "")) return false;
-    if (queryIntentFilter.size > 0 && !queryIntentFilter.has(normalizeQueryIntentType(run.query.intentType))) return false;
+    const runQueryIntentType = normalizedQueryIntentById.get(run.queryId) || normalizeQueryIntentType(run.query.intentType);
+    if (queryIntentFilter.size > 0 && !queryIntentFilter.has(runQueryIntentType)) return false;
     return true;
   });
   const evidenceOptions = buildProjectEvidenceOptions(project.contentAssets);
@@ -409,8 +417,18 @@ function normalizeHitRow(row: AnswerEvidenceHitResult): AnswerEvidenceHitResult 
   };
 }
 
-function normalizeQueryIntentType(value: string | null | undefined) {
-  return String(value || "").trim() || "未设置意图";
+function buildNormalizedQueryIntentById(
+  clusters: Array<{
+    queries: Array<{ id: string; intentType: string }>;
+  }>
+) {
+  const normalized = new Map<string, string>();
+  for (const cluster of clusters) {
+    for (const [queryIndex, query] of cluster.queries.entries()) {
+      normalized.set(query.id, normalizeQueryIntentType(query.intentType, queryIndex));
+    }
+  }
+  return normalized;
 }
 
 function chunkArray<T>(items: T[], size: number) {

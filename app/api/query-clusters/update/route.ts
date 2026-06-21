@@ -13,12 +13,6 @@ export async function POST(request: Request) {
       where: { id: clusterId },
       data: {
         name: String(formData.get("name") || ""),
-        intentType: String(formData.get("intentType") || ""),
-        funnelStage: String(formData.get("funnelStage") || "consideration"),
-        priority: Number(formData.get("priority") || 3),
-        businessValueScore: Number(formData.get("businessValueScore") || 50),
-        targetMetric: String(formData.get("targetMetric") || "VAIR"),
-        ownerTeam: String(formData.get("ownerTeam") || "Product"),
         defaultEngineIds: JSON.stringify(defaultEngineIds),
         status: String(formData.get("status") || "active")
       }

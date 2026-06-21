@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { DEFAULT_QUERY_INTENT_TYPE, normalizeQueryIntentType } from "@/lib/query-intents";
 import { safeRedirectPath } from "@/lib/routes";
 
 export async function POST(request: Request) {
@@ -7,13 +8,8 @@ export async function POST(request: Request) {
   const redirectTo = safeRedirectPath(formData.get("redirectTo"), "/sampling");
   const clusterId = String(formData.get("clusterId") || "");
   const queryText = String(formData.get("queryText") || "").trim();
-  const language = String(formData.get("language") || "zh-CN");
   const region = String(formData.get("region") || "CN");
-  const persona = String(formData.get("persona") || "").trim();
   const intentType = String(formData.get("intentType") || "").trim();
-  const expectedEvidenceTypes = String(
-    formData.get("expectedEvidenceTypes") || "definition,pricing,specification,comparison,constraint,trust_signal"
-  ).trim();
   if (clusterId && queryText) {
     const cluster = await prisma.queryCluster.findUnique({ where: { id: clusterId } });
     if (cluster) {
@@ -21,12 +17,8 @@ export async function POST(request: Request) {
         data: {
           clusterId,
           queryText,
-          language,
           region,
-          persona: persona || null,
-          device: String(formData.get("device") || "desktop"),
-          intentType: intentType || cluster.intentType,
-          expectedEvidenceTypes,
+          intentType: normalizeQueryIntentType(intentType || DEFAULT_QUERY_INTENT_TYPE),
           status: String(formData.get("status") || "active")
         }
       });

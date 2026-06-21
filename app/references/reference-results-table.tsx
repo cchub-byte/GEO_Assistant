@@ -24,7 +24,6 @@ type ReferenceResultItem = {
   siteLabel: string;
   sourceType: string;
   clusterName: string;
-  clusterIntentType: string;
   queryText: string;
   queryIntentType: string;
   platform: string;
@@ -204,7 +203,6 @@ export function ReferenceResultsTable({
                         </td>
                         <td className="reference-cluster-cell">
                           <strong>{source.clusterName}</strong>
-                          <div className="hint">{source.clusterIntentType}</div>
                         </td>
                         <td className="reference-query-cell">
                           <strong>{source.queryText}</strong>

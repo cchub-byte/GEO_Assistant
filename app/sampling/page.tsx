@@ -36,13 +36,11 @@ export default async function SamplingPage({
   const clusters: QueryClusterView[] = data.project.queryClusters.map((cluster) => ({
     id: cluster.id,
     name: cluster.name,
-    intentType: cluster.intentType,
     status: cluster.status,
     defaultEngineIds: parseDefaultEngineIds(cluster.defaultEngineIds),
     queries: cluster.queries.map((query) => ({
       id: query.id,
       queryText: query.queryText,
-      language: query.language,
       region: query.region,
       status: query.status
     }))

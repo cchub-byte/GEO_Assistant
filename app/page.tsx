@@ -26,6 +26,7 @@ import {
   summarizeSelectedClusters
 } from "@/lib/services/dashboard-analytics";
 import { getDashboard } from "@/lib/services/read";
+import { normalizeQueryIntentType } from "@/lib/query-intents";
 import { brandTerms, percentage } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -88,7 +89,8 @@ export default async function DashboardPage({
     mergeSearchParamValues(resolvedSearchParams.batchIds, resolvedSearchParams.batchId),
     new Set(batchOptions.map((batch) => batch.id))
   );
-  const queryIntentOptions = buildQueryIntentFilterOptions(project.queryClusters, project.answerRuns);
+  const normalizedQueryIntentById = buildNormalizedQueryIntentById(project.queryClusters);
+  const queryIntentOptions = buildQueryIntentFilterOptions(project.queryClusters, project.answerRuns, normalizedQueryIntentById);
   const selectedQueryIntentTypes = normalizeSelectedIds(
     mergeSearchParamValues(resolvedSearchParams.queryIntentTypes, resolvedSearchParams.queryIntentType),
     new Set(queryIntentOptions.map((intent) => intent.value))
@@ -97,7 +99,8 @@ export default async function DashboardPage({
   const filteredAnswerRuns = project.answerRuns.filter((run) => {
     if (selectedClusterIds.length > 0 && !selectedClusterIds.includes(run.query.clusterId)) return false;
     if (selectedBatchIds.length > 0 && !selectedBatchIds.includes(run.samplingBatchId || "")) return false;
-    if (selectedQueryIntentTypes.length > 0 && !selectedQueryIntentTypes.includes(normalizeQueryIntentType(run.query.intentType))) return false;
+    const runQueryIntentType = normalizedQueryIntentById.get(run.queryId) || normalizeQueryIntentType(run.query.intentType);
+    if (selectedQueryIntentTypes.length > 0 && !selectedQueryIntentTypes.includes(runQueryIntentType)) return false;
     return true;
   });
   const currentBrandAndProductTerms = brandTerms(project.brandProfile);
@@ -278,7 +281,6 @@ export default async function DashboardPage({
                       />
                       <span>
                         <strong>{cluster.name}</strong>
-                        <span className="hint">{cluster.intentType}</span>
                       </span>
                     </label>
                   ))
@@ -788,26 +790,43 @@ type QueryIntentFilterOption = {
 
 function buildQueryIntentFilterOptions(
   clusters: Array<{
-    intentType: string;
     queries: Array<{ id: string; intentType: string }>;
   }>,
   answerRuns: Array<{
+    queryId: string;
     query: { intentType: string };
-  }>
+  }>,
+  normalizedQueryIntentById: Map<string, string>
 ): QueryIntentFilterOption[] {
   const optionMap = new Map<string, QueryIntentFilterOption>();
   for (const cluster of clusters) {
-    ensureQueryIntentFilterOption(optionMap, cluster.intentType);
-    for (const query of cluster.queries) {
-      const option = ensureQueryIntentFilterOption(optionMap, query.intentType);
+    for (const [queryIndex, query] of cluster.queries.entries()) {
+      const option = ensureQueryIntentFilterOption(optionMap, normalizeQueryIntentType(query.intentType, queryIndex));
       option.queryCount += 1;
     }
   }
   for (const run of answerRuns) {
-    const option = ensureQueryIntentFilterOption(optionMap, run.query.intentType);
+    const option = ensureQueryIntentFilterOption(
+      optionMap,
+      normalizedQueryIntentById.get(run.queryId) || normalizeQueryIntentType(run.query.intentType)
+    );
     option.runCount += 1;
   }
   return [...optionMap.values()].sort((left, right) => left.value.localeCompare(right.value, "zh-CN"));
+}
+
+function buildNormalizedQueryIntentById(
+  clusters: Array<{
+    queries: Array<{ id: string; intentType: string }>;
+  }>
+) {
+  const normalized = new Map<string, string>();
+  for (const cluster of clusters) {
+    for (const [queryIndex, query] of cluster.queries.entries()) {
+      normalized.set(query.id, normalizeQueryIntentType(query.intentType, queryIndex));
+    }
+  }
+  return normalized;
 }
 
 function ensureQueryIntentFilterOption(optionMap: Map<string, QueryIntentFilterOption>, rawIntentType: string) {
@@ -817,10 +836,6 @@ function ensureQueryIntentFilterOption(optionMap: Map<string, QueryIntentFilterO
   const option = { value, queryCount: 0, runCount: 0 };
   optionMap.set(value, option);
   return option;
-}
-
-function normalizeQueryIntentType(value: string | null | undefined) {
-  return String(value || "").trim() || "未设置意图";
 }
 
 function summarizeSelectedQueryIntents(options: QueryIntentFilterOption[], selectedValues: string[]) {

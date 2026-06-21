@@ -13,6 +13,7 @@ import {
   type ProfileAnalysisArchiveTarget
 } from "@/lib/services/profile-analysis-archive";
 import { prisma } from "@/lib/db";
+import { normalizeQueryIntentType } from "@/lib/query-intents";
 import { getDashboard, getDefaultProjectId } from "@/lib/services/read";
 
 type ProfileAnalysisRequest = {
@@ -60,21 +61,20 @@ async function analyzeDashboardProfile(input: { target: ProfileAnalysisArchiveTa
   const { project } = data;
   const selectedClusterIds = normalizeSelectedIds(input.filters.clusterIds, new Set(project.queryClusters.map((cluster) => cluster.id)));
   const selectedBatchIds = normalizeSelectedIds(input.filters.batchIds, new Set(project.samplingBatches.map((batch) => batch.id)));
+  const normalizedQueryIntentById = buildNormalizedQueryIntentById(project.queryClusters);
   const validIntentTypes = new Set<string>();
-  for (const cluster of project.queryClusters) {
-    validIntentTypes.add(normalizeQueryIntentType(cluster.intentType));
-    for (const query of cluster.queries) {
-      validIntentTypes.add(normalizeQueryIntentType(query.intentType));
-    }
+  for (const intentType of normalizedQueryIntentById.values()) {
+    validIntentTypes.add(intentType);
   }
   for (const run of project.answerRuns) {
-    validIntentTypes.add(normalizeQueryIntentType(run.query.intentType));
+    validIntentTypes.add(normalizedQueryIntentById.get(run.queryId) || normalizeQueryIntentType(run.query.intentType));
   }
   const selectedQueryIntentTypes = normalizeSelectedIds(input.filters.queryIntentTypes, validIntentTypes);
   const filteredAnswerRuns = project.answerRuns.filter((run) => {
     if (selectedClusterIds.length > 0 && !selectedClusterIds.includes(run.query.clusterId)) return false;
     if (selectedBatchIds.length > 0 && !selectedBatchIds.includes(run.samplingBatchId || "")) return false;
-    if (selectedQueryIntentTypes.length > 0 && !selectedQueryIntentTypes.includes(normalizeQueryIntentType(run.query.intentType))) return false;
+    const runQueryIntentType = normalizedQueryIntentById.get(run.queryId) || normalizeQueryIntentType(run.query.intentType);
+    if (selectedQueryIntentTypes.length > 0 && !selectedQueryIntentTypes.includes(runQueryIntentType)) return false;
     return true;
   });
   const sources = buildDashboardProfileAnalysisSources(filteredAnswerRuns);
@@ -319,6 +319,20 @@ function normalizeFilters(value: unknown): ProfileAnalysisFilters {
   return filters;
 }
 
+function buildNormalizedQueryIntentById(
+  clusters: Array<{
+    queries: Array<{ id: string; intentType: string }>;
+  }>
+) {
+  const normalized = new Map<string, string>();
+  for (const cluster of clusters) {
+    for (const [queryIndex, query] of cluster.queries.entries()) {
+      normalized.set(query.id, normalizeQueryIntentType(query.intentType, queryIndex));
+    }
+  }
+  return normalized;
+}
+
 function filterString(value: string | string[] | undefined) {
   const raw = Array.isArray(value) ? value[0] : value;
   return String(raw || "").trim();
@@ -330,8 +344,4 @@ function splitSearchKeywords(value: string) {
 
 function normalizeMentionFilter(value: string): MentionFilter {
   return mentionFilterValues.has(value as MentionFilter) ? (value as MentionFilter) : "";
-}
-
-function normalizeQueryIntentType(value: string | null | undefined) {
-  return String(value || "").trim() || "未设置意图";
 }

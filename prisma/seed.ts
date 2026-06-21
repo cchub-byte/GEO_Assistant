@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { fallbackQueryIntentType } from "../lib/query-intents";
 import { engineCatalog } from "../lib/domain";
 
 const prisma = new PrismaClient();
@@ -114,13 +115,11 @@ async function main() {
         targetMetric: "VAIR",
         ownerTeam: "Product",
         queries: {
-          create: cluster.queries.map((queryText) => ({
+          create: cluster.queries.map((queryText, queryIndex) => ({
             queryText,
             language: /[a-zA-Z]/.test(queryText) && !/[一-龥]/.test(queryText) ? "en-US" : "zh-CN",
             region: /[a-zA-Z]/.test(queryText) && !/[一-龥]/.test(queryText) ? "US" : "CN",
-            intentType: cluster.intentType,
-            persona: cluster.intentType === "pricing" ? "采购负责人" : "产品/增长负责人",
-            expectedEvidenceTypes: "definition,pricing,specification,comparison,constraint,trust_signal"
+            intentType: fallbackQueryIntentType(queryIndex)
           }))
         }
       }

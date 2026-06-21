@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { DEFAULT_QUERY_INTENT_TYPE, normalizeQueryIntentType } from "@/lib/query-intents";
 import { safeRedirectPath } from "@/lib/routes";
 
 export async function POST(request: Request) {
@@ -14,14 +15,10 @@ export async function POST(request: Request) {
       where: { id: queryId },
       data: {
         ...(cluster ? { clusterId: cluster.id } : {}),
-        ...(intentType ? { intentType } : cluster ? { intentType: cluster.intentType } : {}),
+        intentType: normalizeQueryIntentType(intentType || DEFAULT_QUERY_INTENT_TYPE),
         queryText: String(formData.get("queryText") || ""),
-        language: String(formData.get("language") || "zh-CN"),
         region: String(formData.get("region") || "CN"),
-        persona: String(formData.get("persona") || ""),
-        device: String(formData.get("device") || "desktop"),
-        status: String(formData.get("status") || "active"),
-        expectedEvidenceTypes: String(formData.get("expectedEvidenceTypes") || "")
+        status: String(formData.get("status") || "active")
       }
     });
   }
