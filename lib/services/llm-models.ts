@@ -10,19 +10,9 @@ export const llmModelScenarios = [
     description: "从内容资产文本中抽取定义、指标、对比、限制等证据模块。"
   },
   {
-    key: "optimizationBriefGeneration",
-    label: "优化 Brief 生成",
-    description: "根据发现问题生成 GEO 优化建议。"
-  },
-  {
     key: "answerAnalysis",
     label: "回答优缺点分析",
     description: "判断回答是否提及当前品牌与竞品的优点、缺点。"
-  },
-  {
-    key: "answerReferenceAnalysis",
-    label: "二合一引用归因分析",
-    description: "将回答中的品牌优缺点与引用上下文进行来源归因。"
   },
   {
     key: "answerEvidenceHitAnalysis",

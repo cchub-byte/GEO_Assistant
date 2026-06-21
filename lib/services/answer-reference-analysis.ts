@@ -30,7 +30,7 @@ export async function analyzeAnswerReferenceRun(runId: string) {
   if (!run) return null;
 
   try {
-    const config = assertUsableLlmConfig(run.project.llmConfig, "answerReferenceAnalysis");
+    const config = assertUsableLlmConfig(run.project.llmConfig, "answerAnalysis");
     if (!run.answerAnalysis?.trim()) {
       throw new Error("请先完成回答分析，再进行二合一分析");
     }
