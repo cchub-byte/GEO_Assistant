@@ -119,7 +119,7 @@ describe("brand site content AI draft helpers", () => {
         title: "Product",
         bodyText: "B".repeat(12000),
         bodyTextLength: 12000,
-        fetchMode: "playwright"
+        fetchMode: "fetch"
       }
     ]);
 

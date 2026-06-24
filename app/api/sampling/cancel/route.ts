@@ -1,11 +1,7 @@
 import { redirect } from "next/navigation";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 
 import { prisma } from "@/lib/db";
 import { closePersistentBrowserContexts } from "@/lib/connectors/browser-session";
-
-const execAsync = promisify(exec);
 
 export async function POST() {
   const activeJobs = await prisma.samplingJob.findMany({
@@ -34,6 +30,5 @@ export async function POST() {
     }
   });
   await closePersistentBrowserContexts();
-  await execAsync(`pkill -TERM -f "${process.cwd()}/.geo-browser-profiles"`).catch(() => undefined);
   redirect("/sampling");
 }

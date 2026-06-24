@@ -9,8 +9,6 @@ const appUserAgent =
 const maxRedirects = 5;
 const maxResponseBytes = 5 * 1024 * 1024;
 const requestTimeoutMs = 15000;
-const playwrightTimeoutMs = 30000;
-const playwrightSettleMs = 5000;
 
 export type ReferenceFetchDetail = {
   url: string;
@@ -19,7 +17,7 @@ export type ReferenceFetchDetail = {
   author: string;
   publishedAt: string;
   content: string;
-  fetchMode: "fetch" | "playwright";
+  fetchMode: "fetch";
   fallbackReason?: string;
 };
 
@@ -39,9 +37,7 @@ export async function fetchReferenceDetail(url: string): Promise<ReferenceFetchD
     throw new ReferenceFetchError(urlResolution.rejectedReason, { retryable: false });
   }
   const targetUrl = urlResolution.url;
-  let fetchFailure = "";
 
-  // 先尝试轻量 fetch，失败后再启用 Playwright；这样多数静态页面不会付出浏览器渲染成本。
   try {
     const { html, finalUrl } = await fetchHtml(targetUrl);
     const article = extractArticle(html, finalUrl);
@@ -49,23 +45,7 @@ export async function fetchReferenceDetail(url: string): Promise<ReferenceFetchD
     return { ...article, fetchMode: "fetch" };
   } catch (error) {
     if (error instanceof ReferenceFetchError && !error.retryable) throw error;
-    fetchFailure = errorMessage(error);
-  }
-
-  try {
-    const { html, finalUrl, metadata } = await fetchHtmlWithPlaywright(targetUrl);
-    const article = extractArticle(html, finalUrl, metadata);
-    ensureArticleContent(article, "Playwright");
-    return {
-      ...article,
-      fetchMode: "playwright",
-      fallbackReason: fetchFailure
-    };
-  } catch (error) {
-    throw new ReferenceFetchError(
-      `fetch 与 Playwright 均未能提取正文。fetch：${fetchFailure || "未记录错误"}；Playwright：${errorMessage(error)}`,
-      { retryable: false }
-    );
+    throw new ReferenceFetchError(`fetch 未能提取正文：${errorMessage(error)}`, { retryable: false });
   }
 }
 
@@ -162,68 +142,6 @@ function normalizeCharset(charset: string) {
     return "gb18030";
   }
   return normalized || "utf-8";
-}
-
-async function fetchHtmlWithPlaywright(inputUrl: string) {
-  const currentUrl = await validatePublicHttpUrl(inputUrl);
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true });
-
-  try {
-    const context = await browser.newContext({
-      locale: "zh-CN",
-      viewport: { width: 1365, height: 900 },
-      userAgent: appUserAgent,
-      extraHTTPHeaders: { "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8" }
-    });
-
-    await context.route("**/*", async (route) => {
-      const requestUrl = route.request().url();
-      try {
-        // 渲染页面中的子资源同样需要 SSRF 防护，非公开 http(s) 请求直接拦截。
-        const parsed = new URL(requestUrl);
-        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-          await validatePublicHttpUrl(requestUrl);
-        }
-      } catch {
-        await route.abort();
-        return;
-      }
-      await route.continue();
-    });
-
-    const page = await context.newPage();
-    const response = await page.goto(currentUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: playwrightTimeoutMs
-    });
-
-    if (response) {
-      const blockedMessage = describeBlockedResponse(response.status());
-      if (blockedMessage) {
-        throw new ReferenceFetchError(blockedMessage, { retryable: false });
-      }
-    }
-
-    await page.waitForTimeout(playwrightSettleMs);
-    const finalUrl = await validatePublicHttpUrl(page.url());
-    const html = await page.content();
-    const visibleText = await page.locator("body").innerText({ timeout: 3000 }).catch(() => "");
-    const title = await page.title().catch(() => "");
-    const metadata = collectVisibleMetadata(title, visibleText);
-
-    const verificationMessage = detectVerificationPage(html, finalUrl);
-    if (verificationMessage) {
-      throw new ReferenceFetchError(`Playwright 渲染后仍是安全验证或验证码页面：${verificationMessage}`, { retryable: false });
-    }
-
-    return { html, finalUrl, metadata };
-  } catch (error) {
-    if (error instanceof ReferenceFetchError) throw error;
-    throw new ReferenceFetchError(`Playwright 渲染失败：${errorMessage(error)}`, { retryable: false });
-  } finally {
-    await browser.close();
-  }
 }
 
 async function validatePublicHttpUrl(value: string) {
@@ -481,34 +399,6 @@ function metaContent($: CheerioAPI, ...names: string[]) {
     }
   }
   return "";
-}
-
-function collectVisibleMetadata(pageTitle: string, visibleText: string) {
-  const metadata = {
-    title: pageTitle.trim(),
-    author: "",
-    publishedAt: ""
-  };
-  const dateMatch = visibleText.match(/20\d{2}[-/年]\d{1,2}[-/月]\d{1,2}(?:日)?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?/);
-  if (!dateMatch || dateMatch.index == null) return metadata;
-
-  metadata.publishedAt = dateMatch[0];
-  const precedingLines = visibleText
-    .slice(0, dateMatch.index)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const excluded = new Set(["百度首页", "登录", metadata.title]);
-
-  for (let index = precedingLines.length - 1; index >= 0; index -= 1) {
-    const line = precedingLines[index];
-    if (!excluded.has(line) && line.length <= 80) {
-      metadata.author = line;
-      break;
-    }
-  }
-
-  return metadata;
 }
 
 function extractReadableText($: CheerioAPI) {
